@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   scraper:
     build: .
@@ -10,5 +8,5 @@ services:
       - ./data:/app/data
     env_file:
       - .env
-    restart: unless-stopped
+    # Supprimer restart: unless-stopped pour éviter la boucle
     command: python src/main.py

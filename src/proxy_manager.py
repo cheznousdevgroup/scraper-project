@@ -1,19 +1,27 @@
 import os
 from urllib.parse import quote
 from typing import Dict, Optional
+import urllib3
+
+# Désactiver les warnings SSL (car Oxylabs utilise son propre certificat)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class ProxyManager:
     def __init__(self):
         self.service = os.getenv('PROXY_SERVICE', 'oxylabs')
     
     def get_oxylabs_proxy(self) -> Dict[str, str]:
-        """Configure Oxylabs proxy"""
+        """Configure Oxylabs Web Unblocker (celui qui fonctionne avec curl)"""
         username = os.getenv('OXYLABS_USERNAME')
         password = os.getenv('OXYLABS_PASSWORD')
-        country = os.getenv('OXYLABS_COUNTRY', 'US')
         
-        # Pour Web Unblocker (recommandé pour scraping)
-        proxy_url = f'http://customer-{username}-cc-{country}:{password}@pr.oxylabs.io:7777'
+        # Encoder le mot de passe pour gérer les caractères spéciaux
+        encoded_password = quote(password, safe='')
+        
+        # Web Unblocker - celui qui fonctionne avec ton curl
+        proxy_url = f'http://{username}:{encoded_password}@unblock.oxylabs.io:60000'
+        
+        print(f"🔐 Utilisation Web Unblocker: http://{username}:***@unblock.oxylabs.io:60000")
         
         return {
             'http': proxy_url,
@@ -27,7 +35,8 @@ class ProxyManager:
         username = os.getenv('BRIGHTDATA_USERNAME')
         password = os.getenv('BRIGHTDATA_PASSWORD')
         
-        proxy_url = f'http://{username}:{password}@{host}:{port}'
+        encoded_password = quote(password, safe='')
+        proxy_url = f'http://{username}:{encoded_password}@{host}:{port}'
         
         return {
             'http': proxy_url,
@@ -44,17 +53,46 @@ class ProxyManager:
             raise ValueError(f"Service proxy inconnu: {self.service}")
     
     def test_proxy(self) -> bool:
-        """Test le proxy configuré"""
+        """Test le proxy configuré avec la bonne config SSL"""
         import requests
         
         proxies = self.get_proxy()
-        test_url = 'https://ip.oxylabs.io/location' if self.service == 'oxylabs' else 'https://geo.brdtest.com/welcome.txt'
+        
+        if self.service == 'oxylabs':
+            test_url = 'https://ip.oxylabs.io/location'
+        else:
+            test_url = 'https://geo.brdtest.com/welcome.txt'
         
         try:
-            response = requests.get(test_url, proxies=proxies, timeout=30)
+            print(f"🧪 Test du proxy vers {test_url}...")
+            
+            # IMPORTANT : verify=False pour Oxylabs Web Unblocker
+            response = requests.get(
+                test_url, 
+                proxies=proxies, 
+                timeout=30,
+                verify=False  # Désactive la vérification SSL
+            )
+            
             print(f"✅ Proxy {self.service} OK: {response.status_code}")
-            print(f"📍 Info: {response.text[:200]}")
+            print(f"📍 Réponse:\n{response.text[:400]}")
+            
+            # Afficher les headers Oxylabs
+            if 'X-Oxylabs-Client-Id' in response.headers:
+                print(f"🆔 Client ID: {response.headers.get('X-Oxylabs-Client-Id')}")
+                print(f"📊 Job ID: {response.headers.get('X-Oxylabs-Job-Id')}")
+            
             return True
+            
+        except requests.exceptions.SSLError as e:
+            print(f"❌ Erreur SSL: {e}")
+            print("💡 Vérifie que verify=False est bien utilisé")
+            return False
+            
+        except requests.exceptions.ProxyError as e:
+            print(f"❌ Erreur d'authentification proxy: {e}")
+            return False
+            
         except Exception as e:
             print(f"❌ Erreur proxy {self.service}: {e}")
             return False
